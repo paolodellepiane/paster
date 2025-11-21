@@ -1,36 +1,76 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use arboard::{Clipboard, ImageData};
+use chrono::{Datelike};
 use image::{ImageFormat, RgbaImage};
 use std::path::{Path, PathBuf};
+use clap::{Parser, Subcommand, ValueEnum};
 
-const USAGE: &str = "Usage: paster <destination_directory>";
+#[derive(Parser)]
+#[command(version, about, long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// paste clipboard content to a directory
+    Paste {
+        /// destination directory
+        dest_dir: PathBuf,
+    },
+    /// print a date
+    Date {
+        /// when
+        #[arg(value_parser)]
+        when: WhatTypes,
+        /// format
+        #[arg(short, long, env = "PASTER_DATE_FORMAT", default_value = "%d/%m/%y")]
+        format: String,
+    },
+}
+
+#[derive(Clone, ValueEnum)]
+#[value(rename_all = "kebab-case")]
+enum WhatTypes {
+    Yesterday,
+    Today,
+    Tomorrow,
+    NextWeek,
+}
 
 fn main() -> Result<()> {
-    let args: Vec<String> = std::env::args().collect();
+    let cli = Cli::parse();
 
-    let dest_dir = &args
-        .get(1)
-        .ok_or(anyhow!(format!("Missing destination directory\n{}", USAGE)))?;
-
-    let mut ctx = Clipboard::new()?;
-
-    if let Ok(file_list) = ctx.get().file_list() {
-        handle_file_list(file_list, dest_dir)?;
-        return Ok(());
+    match cli.command {
+        Commands::Paste { dest_dir } => paste(dest_dir)?,
+        Commands::Date {   when, format } => date(when, &format)?,
     }
+    
+    Ok(())
+}
 
-    if let Ok(image) = ctx.get_image() {
-        handle_image_data(image, dest_dir)?;
-        return Ok(());
+fn date(when: WhatTypes, format: &str) -> Result<()> {
+    match when {
+        WhatTypes::Yesterday => {
+            let yesterday = chrono::Utc::now() - chrono::Duration::days(1);
+            println!("{}", yesterday.format(format));
+        }
+        WhatTypes::Today => {
+            println!("{}", chrono::Utc::now().format(format));
+        }
+        WhatTypes::Tomorrow => {
+            println!("{}", (chrono::Utc::now() + chrono::Duration::days(1)).format(format));
+        }
+        WhatTypes::NextWeek => {
+            // get next week monday
+            let today = chrono::Local::now().date_naive();
+            let days_since_monday = today.weekday().num_days_from_monday() as i64;
+            let next_monday = today + chrono::Duration::days(7 - days_since_monday);
+
+            println!("{}", next_monday.format(format));
+        }
     }
-
-    let content = ctx.get_text()?;
-    if content.trim().is_empty() {
-        return Ok(());
-    }
-
-    handle_text(content);
-
     Ok(())
 }
 
@@ -108,4 +148,27 @@ fn handle_text(content: String) {
     println!("```");
     println!("{content}");
     println!("```");
+}
+
+fn paste(dest_dir: impl AsRef<Path>) -> Result<()> {
+    let mut ctx = Clipboard::new()?;
+
+    if let Ok(file_list) = ctx.get().file_list() {
+        handle_file_list(file_list, dest_dir)?;
+        return Ok(());
+    }
+
+    if let Ok(image) = ctx.get_image() {
+        handle_image_data(image, dest_dir)?;
+        return Ok(());
+    }
+
+    let content = ctx.get_text()?;
+    if content.trim().is_empty() {
+        return Ok(());
+    }
+
+    handle_text(content);
+
+    Ok(())
 }
