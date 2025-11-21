@@ -18,6 +18,9 @@ enum Commands {
     Paste {
         /// destination directory
         dest_dir: PathBuf,
+        /// working directory
+        #[arg(long, env = "PASTER_WORK_DIR")]
+        cd: Option<PathBuf>,
     },
     /// print a date
     Date {
@@ -43,7 +46,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Paste { dest_dir } => paste(dest_dir)?,
+        Commands::Paste { dest_dir, cd } => paste(dest_dir, cd)?,
         Commands::Date {   when, format } => date(when, &format)?,
     }
     
@@ -150,7 +153,11 @@ fn handle_text(content: String) {
     println!("```");
 }
 
-fn paste(dest_dir: impl AsRef<Path>) -> Result<()> {
+fn paste(dest_dir: impl AsRef<Path>, work_dir: Option<impl AsRef<Path>>) -> Result<()> {
+    if let Some(work_dir) = work_dir {
+        std::env::set_current_dir(&work_dir)?;
+    }
+
     let mut ctx = Clipboard::new()?;
 
     if let Ok(file_list) = ctx.get().file_list() {
